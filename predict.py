@@ -1,13 +1,13 @@
 from collections import defaultdict
 
-from sequence_labelling.data_utils import load_vocab_vectors, UNK, _get_spans, STOP_TAG
-from train import _load_words_and_tags, _load_data, batch_generator
+from data_utils import load_vocab_vectors, UNK, _get_spans
+from train import _load_words_tags_chars, _load_data, batch_generator
 from utils import *
 
 
 # TODO: model.train should be called with False before evaluation?
 def _predict():
-    word2idx, tag2idx = _load_words_and_tags("data/words.txt", "data/tags.txt")
+    word2idx, tag2idx = _load_words_tags_chars("data/words.txt", "data/tags.txt")
     idx2word = {idx: word for word, idx in word2idx.items()}
     idx2tag = {idx: tag for tag, idx in tag2idx.items()}
     embeddings = load_vocab_vectors("data/filtered_embeddings.txt")

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from sequence_labelling.data_utils import START_TAG_IDX, STOP_TAG_IDX, PAD_IDX
+from data_utils import START_TAG_IDX, STOP_TAG_IDX, PAD_IDX
 
 EMBED_SIZE = 300
 HIDDEN_SIZE = 300
@@ -67,6 +67,9 @@ class lstm(nn.Module):
         x = self.embed(x)
         x = nn.utils.rnn.pack_padded_sequence(x, mask.sum(1).int(), batch_first=True)
         output, hidden = self.lstm(x, initial_hidden)
+        # print(output.size(), hidden[0].size(), hidden[1].size())
+        print(output)
+
         output, recovered_lengths = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
         output = self.out(output)  # batch x seq_len x num_tags
         output *= mask.unsqueeze(-1)  # mask - batch x seq_len -> batch x seq_len x 1
@@ -171,6 +174,41 @@ class crf(nn.Module):
             best_path[idx].reverse()
 
         return best_path
+
+
+
+def _sort_and_reverse_sorting(_2dtensor, lengths):
+    sorted_lengths, order = lengths.sort(descending=True)
+    _2dtensor_sorted_by_lengths = _2dtensor[order]
+    #do something and reverse
+    unsorted = _2dtensor_sorted_by_lengths.new(*_2dtensor.size())
+    return unsorted.scatter_(0, order.unsqueeze(1).expand(*_2dtensor.size()), _2dtensor_sorted_by_lengths)
+
+
+
+def reverse_sorting_single_vector(_sorted, order):
+    unsorted = _sorted.new(*_sorted.size())
+    unsorted.scatter_(0, order, _sorted)
+    return unsorted
+
+
+# TODO: check
+def reverse_sorting_batch():
+    lengths = torch.tensor([len(indices) for indices in indices_list], dtype=torch.long, device=device)
+    lengths_sorted, sorted_idx = lengths.sort(descending=True)
+
+    indices_padded = pad_lists(indices, padding_idx, dtype=torch.long, device=device)  # custom function
+    indices_sorted = indices_padded[sorted_idx]
+
+    embeddings_padded = self.embedding(indices_sorted)
+    embeddings_packed = pack_padded_sequence(embeddings_padded, lengths_sorted.tolist(), batch_first=True)
+
+    h, (h_n, _) = self.lstm(embeddings_packed)
+
+    h, _ = pad_packed_sequence(h, batch_first=True, padding_value=padding_idx)
+
+    # Reverses sorting.
+    h = torch.zeros_like(h).scatter_(0, sorted_idx.unsqueeze(1).unsqueeze(1).expand(-1, h.shape[1], h.shape[2]), h)
 
 
 def Tensor(*args):

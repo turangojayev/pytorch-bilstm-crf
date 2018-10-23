@@ -34,7 +34,7 @@ class CoNLLDataset(object):
     def __iter__(self):
         niter = 0
         with open(self.filename, encoding='utf8') as f:
-            words, tags = [], []
+            words, tags = (), ()
             for line in f:
                 line = line.strip()
                 if len(line) == 0 or line.startswith("-DOCSTART-"):
@@ -43,7 +43,7 @@ class CoNLLDataset(object):
                         if self.max_iter is not None and niter > self.max_iter:
                             break
                         yield words, tags
-                        words, tags = [], []
+                        words, tags = (), ()
                 else:
                     ls = line.split(' ')
                     word, tag = ls[0], ls[1]
@@ -51,8 +51,8 @@ class CoNLLDataset(object):
                         word = self.processing_word(word)
                     if self.processing_tag is not None:
                         tag = self.processing_tag(tag)
-                    words += [word]
-                    tags += [tag]
+                    words += (word,)
+                    tags += (tag,)
 
     def __len__(self):
         """Iterates once over the corpus to set and store length"""
@@ -78,7 +78,6 @@ def get_vocabs(datasets):
 
 def get_char_vocab(words):
     vocab_char = set()
-    # for words, _ in dataset:
     for word in words:
         vocab_char.update(word)
 
@@ -157,11 +156,11 @@ def get_processing_word(vocab_words=None,
     def f(word):
         # 0. get chars of words
         if vocab_chars is not None and chars == True:
-            char_ids = []
+            char_ids = ()
             for char in word:
                 # ignore chars out of vocabulary
                 if char in vocab_chars:
-                    char_ids += [vocab_chars[char]]
+                    char_ids += (vocab_chars[char],)
 
         # 1. preprocess word
         if lowercase:

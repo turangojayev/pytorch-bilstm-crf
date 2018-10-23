@@ -3,7 +3,7 @@ from tqdm import tqdm
 
 from data_utils import CoNLLDataset, get_vocabs, UNK, NUM, PAD, \
     get_embedding_vocab, write_vocab, get_char_vocab, filter_embeddings_in_vocabulary, get_processing_word, get_df, \
-    load_vocab_vectors, load_vocab, STOP_TAG, START_TAG, TOKEN2IDX
+    load_vocab_vectors, STOP_TAG, START_TAG, TOKEN2IDX
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
     test_file = '../data/more_annotated_test.conll'
     train_file = '../data/more_annotated_train.conll'
     embeddings_file = "/usr/data/audi/w2v/word2vec.txt"
-    #embeddings_file = "C:\\Users\\turan\\Downloads\\audi_w2v\\word2vec.txt"
+    # embeddings_file = "C:\\Users\\turan\\Downloads\\audi_w2v\\word2vec.txt"
     filtered_embeddings_file = "../data/filtered_embeddings.txt"
 
     processing_word = get_processing_word(lowercase=False)
@@ -29,6 +29,7 @@ def main():
     vocab.add(UNK)
     vocab.add(NUM)
     vocab = list(vocab)
+    #TODO: there's probably no need for these anymore, check and remove, if this is the case
     vocab.insert(TOKEN2IDX[PAD], PAD)
     vocab.insert(TOKEN2IDX[START_TAG], START_TAG)
     vocab.insert(TOKEN2IDX[STOP_TAG], STOP_TAG)
@@ -39,8 +40,6 @@ def main():
 
     filter_embeddings_in_vocabulary(words_file, embeddings_file, filtered_embeddings_file)
 
-    # train = CoNLLDataset(train_file)
-    # vocab_chars = get_char_vocab(train)
     vocab_chars = get_char_vocab(vocab_words)
     write_vocab(vocab_chars, chars_file)
 
@@ -154,9 +153,9 @@ if __name__ == "__main__":
     main()
     # helper()
     embeddings = load_vocab_vectors("../data/filtered_embeddings.txt")
-    #print(embeddings.shape)
-    #print(embeddings[0])
-    #print(embeddings[load_vocab("../data/words.txt")[UNK]])
-    #print(embeddings[load_vocab("../data/words.txt")[NUM]])
-    #print(embeddings[load_vocab("../data/words.txt")[START_TAG]])
-    #print(embeddings[load_vocab("../data/words.txt")[STOP_TAG]])
+    # print(embeddings.shape)
+    # print(embeddings[0])
+    # print(embeddings[load_vocab("../data/words.txt")[UNK]])
+    # print(embeddings[load_vocab("../data/words.txt")[NUM]])
+    # print(embeddings[load_vocab("../data/words.txt")[START_TAG]])
+    # print(embeddings[load_vocab("../data/words.txt")[STOP_TAG]])
