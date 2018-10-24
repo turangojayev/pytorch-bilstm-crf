@@ -127,6 +127,7 @@ class WordCharLSTM(torch.nn.Module):
         sequence_lengths = word_x.gt(0).sum(1)  # TODO: maybe send as input?
         packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, sequence_lengths, True)
         packed_output, _ = self._word_lstm(packed)
+        return torch.nn.utils.rnn.pad_packed_sequence(packed_output, batch_first=True)
 
 
     def _char_forward(self, x):

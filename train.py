@@ -57,6 +57,14 @@ def batch_generator(*arrays, batch_size=32):
         batch_lengths = seq_length_in_words[startIdx:endIdx]
         batch_maxlen = batch_lengths.max()
         argsort = numpy.argsort(batch_lengths)[::-1].copy()  # without the copy torch complains about negative strides
+        char_batch = numpy.array(char_id_lists[startIdx:endIdx])[argsort]
+        char_batch = [sentence + ((0,),) * (batch_maxlen - len(sentence)) for sentence in char_batch]
+
+        word_lengths = [len(word) for sentence in char_batch for word in sentence]
+        max_word_length = max(word_lengths)
+        chars = [word + (0,) * (max_word_length - len(word)) for sentence in char_batch for word in sentence]
+
+        chars = LongTensor(chars)
 
         words = LongTensor([word_ids + (PAD_IDX,) * (batch_maxlen - len(word_ids))
                             for word_ids in word_id_lists[startIdx:endIdx]])
@@ -64,7 +72,7 @@ def batch_generator(*arrays, batch_size=32):
                            for tag_ids in tag_id_lists[startIdx:endIdx]])
 
         prog.update(len(batch_lengths))
-        yield words[argsort], tags[argsort]
+        yield words[argsort], chars, tags[argsort]
     prog.close()
 
 
@@ -75,7 +83,21 @@ def train(word_vocab_size,
           train_data,
           valid_data,
           epochs=20):
-    model = lstm_crf(word_vocab_size, tag_vocab_size, torch.tensor(word_embeddings, dtype=torch.float))
+    char_lstm = torch.nn.LSTM(
+        input_size=CHAR_EMBEDDING_DIM,
+        hidden_size=200 // 2,
+        num_layers=1,
+        bias=True,
+        batch_first=True,
+        bidirectional=True)
+    print('char vocab size', char_vocab_size)
+    model = lstm_crf(
+        word_vocab_size,
+        tag_vocab_size,
+        torch.tensor(word_embeddings, dtype=torch.float),
+        char_vocab_size,
+        char_lstm)
+
     optim = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
     # TODO: change naming to something better
     filename = re.sub("\.epoch[0-9]+$", "", '0')
@@ -87,9 +109,9 @@ def train(word_vocab_size,
         timer = time.time()
         batch_count = 0
         model.train()
-        for x, y in batch_generator(*train_data):
+        for word_x, char_x, y in batch_generator(*train_data):
             model.zero_grad()
-            loss = torch.mean(model(x, y))  # forward pass and compute loss
+            loss = torch.mean(model(word_x, char_x, y))  # forward pass and compute loss
             loss.backward()  # compute gradients
             optim.step()  # update parameters
             loss = scalar(loss)
@@ -106,8 +128,8 @@ def train(word_vocab_size,
         batch_count = 0
         model.eval()
         with torch.no_grad():
-            for x, y in batch_generator(*valid_data):
-                loss_sum += scalar(torch.mean(model(x, y)))
+            for word_x, char_x, y in batch_generator(*valid_data):
+                loss_sum += scalar(torch.mean(model(word_x, char_x, y)))
                 batch_count += 1
 
             print('validation loss: {}'.format(loss_sum / batch_count))
@@ -128,7 +150,7 @@ if __name__ == "__main__":
     train(
         len(word2idx),
         len(tag2idx),
-        len(char2idx),
+        len(char2idx) + 1,
         load_vocab_vectors(filtered_embeddings_file),
         train_data,
         valid_data,

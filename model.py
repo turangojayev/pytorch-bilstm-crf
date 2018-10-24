@@ -4,6 +4,7 @@ import torch.nn as nn
 from data_utils import START_TAG_IDX, STOP_TAG_IDX, PAD_IDX
 
 EMBED_SIZE = 300
+CHAR_EMBEDDING_DIM = 100
 HIDDEN_SIZE = 300
 NUM_LAYERS = 2
 DROPOUT = 0.5
@@ -17,44 +18,84 @@ torch.manual_seed(1)
 CUDA = torch.cuda.is_available()
 
 
+def _sort(_2dtensor, lengths, descending=True):
+    sorted_lengths, order = lengths.sort(descending=descending)
+    _2dtensor_sorted_by_lengths = _2dtensor[order]
+    return _2dtensor_sorted_by_lengths, order
+
+
 class lstm_crf(nn.Module):
-    def __init__(self, vocab_size, num_tags, embeddings):
+    def __init__(
+            self,
+            vocab_size,
+            num_tags,
+            embeddings,
+            num_char_embeddings,
+            char_lstm):
         super(lstm_crf, self).__init__()
-        self.lstm = lstm(vocab_size, num_tags, embeddings)
+        self.lstm = lstm(
+            vocab_size,
+            num_tags,
+            embeddings,
+            num_char_embeddings=num_char_embeddings,
+            char_embedding_dim=CHAR_EMBEDDING_DIM,
+            char_lstm=char_lstm)
+
         self.crf = crf(num_tags)
         self = self.cuda() if CUDA else self
 
-    def forward(self, x, y):  # for training
-        mask = x.data.gt(0).float()  # because 0 is pad_idx, doesn't really belong here, I guess
-        h = self.lstm(x, mask)
+    def forward(self, word_x, char_x, y):  # for training
+        mask = word_x.data.gt(0).float()  # because 0 is pad_idx, doesn't really belong here, I guess
+        h = self.lstm(word_x, mask, char_x)
         Z = self.crf.forward(h, mask)  # partition function
         score = self.crf.score(h, y, mask)
         return Z - score  # NLL loss
 
-    def decode(self, x):  # for prediction
-        mask = x.data.gt(0).float()  # again 0 is probably because of pad_idx, pass mask as parameter
-        h = self.lstm(x, mask)
+    #TODO : add char lstm part
+    def decode(self, word_x, char_x):  # for prediction
+        mask = word_x.data.gt(0).float()  # again 0 is probably because of pad_idx, pass mask as parameter
+        h = self.lstm(word_x, mask, char_x)
         return self.crf.decode(h, mask)
 
 
 # TODO: comment all dimension conversions for better understanding!
 class lstm(nn.Module):
-    def __init__(self, vocab_size, num_tags, embeddings):
+    def __init__(
+            self,
+            vocab_size,
+            num_tags,
+            embeddings,
+            num_char_embeddings,
+            char_embedding_dim,
+            char_lstm,
+            char_padding_idx=0):
         super(lstm, self).__init__()
 
         # architecture
-        self.embed = nn.Embedding(vocab_size, EMBED_SIZE, padding_idx=PAD_IDX, _weight=embeddings)
-        self.embed.weight.requires_grad = False
+        self.char_embeddings = nn.Embedding(
+            num_embeddings=num_char_embeddings,
+            embedding_dim=char_embedding_dim,
+            padding_idx=char_padding_idx)
+
+        self.word_embeddings = nn.Embedding(
+            vocab_size,
+            EMBED_SIZE,
+            padding_idx=PAD_IDX,
+            _weight=embeddings)
+
+        self.word_embeddings.weight.requires_grad = False
+
+        self.char_lstm = char_lstm
 
         self.lstm = nn.LSTM(
-            input_size=EMBED_SIZE,
+            input_size=EMBED_SIZE + 200,
             hidden_size=HIDDEN_SIZE // NUM_DIRS,
             num_layers=NUM_LAYERS,
             bias=True,
             batch_first=True,
             dropout=DROPOUT,
-            bidirectional=BIDIRECTIONAL
-        )
+            bidirectional=BIDIRECTIONAL)
+
         self.out = nn.Linear(HIDDEN_SIZE, num_tags)  # LSTM output to tag
 
     def init_hidden(self, batch_size):  # initialize hidden states
@@ -62,17 +103,45 @@ class lstm(nn.Module):
         c = zeros(NUM_LAYERS * NUM_DIRS, batch_size, HIDDEN_SIZE // NUM_DIRS)  # cell states
         return (h, c)
 
-    def forward(self, x, mask):
-        initial_hidden = self.init_hidden(x.shape[0])  # batch size is first
-        x = self.embed(x)
-        x = nn.utils.rnn.pack_padded_sequence(x, mask.sum(1).int(), batch_first=True)
-        output, hidden = self.lstm(x, initial_hidden)
-        # print(output.size(), hidden[0].size(), hidden[1].size())
-        print(output)
+    def forward(self, word_x, mask, char_x):
+
+        char_output = self._char_forward(char_x)
+        batch_size = word_x.size(0)
+        max_seq_len = word_x.size(1)
+        char_output = char_output.reshape(batch_size, max_seq_len, -1)  # last dimension is for char lstm hidden size
+
+        word_x = self.word_embeddings(word_x)
+
+        word_x = torch.cat([word_x, char_output], -1)
+
+        initial_hidden = self.init_hidden(batch_size)  # batch size is first
+        word_x = nn.utils.rnn.pack_padded_sequence(word_x, mask.sum(1).int(), batch_first=True)
+        output, hidden = self.lstm(word_x, initial_hidden)
 
         output, recovered_lengths = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
         output = self.out(output)  # batch x seq_len x num_tags
         output *= mask.unsqueeze(-1)  # mask - batch x seq_len -> batch x seq_len x 1
+        return output
+
+    def _char_forward(self, x):
+        word_lengths = x.gt(0).sum(1)  # actual word lengths
+        sorted_padded, order = _sort(x, word_lengths)
+        # print(sorted_padded)
+        embedded = self.char_embeddings(sorted_padded)
+
+        word_lengths_copy = word_lengths.clone()
+        word_lengths_copy[word_lengths == 0] = 1
+        packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, word_lengths_copy[order], True)
+        packed_output, _ = self.char_lstm(packed)
+        output, _ = torch.nn.utils.rnn.pad_packed_sequence(packed_output, True)
+
+        _, reverse_sort_order = torch.sort(order, dim=0)
+        output = output[reverse_sort_order]
+
+        indices_of_lasts = (word_lengths_copy - 1).unsqueeze(1).expand(-1, output.shape[2]).unsqueeze(1)
+        output = output.gather(1, indices_of_lasts).squeeze()
+        output[word_lengths == 0] = 0
+        # return output.reshape(len(batch), max_sentence_length, -1)
         return output
 
 
@@ -176,14 +245,12 @@ class crf(nn.Module):
         return best_path
 
 
-
 def _sort_and_reverse_sorting(_2dtensor, lengths):
     sorted_lengths, order = lengths.sort(descending=True)
     _2dtensor_sorted_by_lengths = _2dtensor[order]
-    #do something and reverse
+    # do something and reverse
     unsorted = _2dtensor_sorted_by_lengths.new(*_2dtensor.size())
     return unsorted.scatter_(0, order.unsqueeze(1).expand(*_2dtensor.size()), _2dtensor_sorted_by_lengths)
-
 
 
 def reverse_sorting_single_vector(_sorted, order):
