@@ -2,71 +2,10 @@ import torch
 import numpy
 
 
-def forward(x, mask):
-    """
-    :param x:            [batch*seq_len,  max_word_len, char_emb_size]
-    :param mask:         [batch*seq_len, max_word_len]
-    :return result:      [batch, output_dim]
-    """
-    word_lengths = mask.eq(0).long().sum(1)  # NOTE: 1 for mask. word_lengths
-    sorted_word_lengths, idx_sort = torch.sort(word_lengths, dim=0, descending=True)
-    _, idx_unsort = torch.sort(idx_sort, dim=0)
-
-    x_sort = x.index_select(0, idx_sort)
-
-    # NOTE : in case pad token.
-    for i, _ in enumerate(sorted_word_lengths):  # TODO: vectorize?
-        if sorted_word_lengths[i] == 0:
-            sorted_word_lengths[i] = 1
-    print("sorted_word_lengths:", sorted_word_lengths)
-    print("x_sort.shape", x_sort.size())
-    x_pack = torch.nn.utils.rnn.pack_padded_sequence(x_sort, sorted_word_lengths, batch_first=True)
-    o_pack, hn = rnn(x_pack)
-    output, _ = torch.nn.utils.rnn.pad_packed_sequence(o_pack, batch_first=True)
-    # output - batch x max_seq_len x hidden_size or batch*seq_len x max_word_len x hidden_size
-
-    # unsorted output
-    output_unsort = output.index_select(0, idx_unsort)  # Note that here first dim is batch
-    # hn = hn.transpose(0, 1).index_select(0, idx_unsort)
-
-    # TODO: unnecessary, if before gathering unsqueezing happens on dim 1 instead of 0
-    output_unsort = output_unsort.transpose(0, 1)  # Note that here first dim is seq_len，for gather purpose.
-
-    # get the last time state
-    for i, _ in enumerate(word_lengths):  # NOTE : in case pad token.
-        if word_lengths[i] == 0:
-            word_lengths[i] = 1
-    len_idx = (word_lengths - 1).view(-1, 1).expand(-1, output_unsort.size(2)).unsqueeze(0)
-    # bidirectional bugs
-    len_idx_reversed = torch.zeros_like(len_idx)
-    forward_direction = output_unsort.gather(0, len_idx)[:, :, :int(output_unsort.size(2) / 2)]
-    backward_direction = output_unsort.gather(0, len_idx_reversed)[:, :, int(-output_unsort.size(2) / 2):]
-    o_last = torch.cat([forward_direction, backward_direction], -1)
-    o_last = o_last.squeeze(0)
-
-    print(output_unsort.transpose(0, 1))  # [batch, seq_len, output_dim]
-    # print(o_last)
-    # print("hn.shape:", hn.shape)
-    # print("hn", hn)
-    print("self.rnn(x)", self.rnn(x))
-    return o_last
-
-
 def _sort(_2dtensor, lengths, descending=True):
     sorted_lengths, order = lengths.sort(descending=descending)
     _2dtensor_sorted_by_lengths = _2dtensor[order]
     return _2dtensor_sorted_by_lengths, order
-
-
-# def _reverse_sorting(_2dtensor, order):
-#     unsorted = _2dtensor.new(*_2dtensor.size())
-#     return unsorted.scatter_(0, order.unsqueeze(1).expand(*_2dtensor.size()), _2dtensor)
-
-
-# def sentence_padder():
-#     l = []
-#     l.append([0])
-#     return l
 
 
 class WordCharLSTM(torch.nn.Module):
@@ -128,7 +67,6 @@ class WordCharLSTM(torch.nn.Module):
         packed = torch.nn.utils.rnn.pack_padded_sequence(embedded, sequence_lengths, True)
         packed_output, _ = self._word_lstm(packed)
         return torch.nn.utils.rnn.pad_packed_sequence(packed_output, batch_first=True)
-
 
     def _char_forward(self, x):
         word_lengths = x.gt(0).sum(1)  # actual word lengths
@@ -233,7 +171,6 @@ if __name__ == '__main__':
     output = output[reverse_sort_order]
     # print(output)
 
-    # TODO: what about those that have length 0?
     indices = (word_lengths_copy - 1).unsqueeze(1).expand(-1, output.shape[2]).unsqueeze(1)
     output = output.gather(1, indices).squeeze()
     # print(output)

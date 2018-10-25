@@ -7,14 +7,13 @@ from data_utils import CoNLLDataset, get_vocabs, UNK, NUM, PAD, \
 
 
 def main():
-    words_file = "../data/words.txt"
-    tags_file = "../data/tags.txt"
-    chars_file = "../data/chars.txt"
-    test_file = '../data/more_annotated_test.conll'
-    train_file = '../data/more_annotated_train.conll'
-    embeddings_file = "/usr/data/audi/w2v/word2vec.txt"
-    # embeddings_file = "C:\\Users\\turan\\Downloads\\audi_w2v\\word2vec.txt"
-    filtered_embeddings_file = "../data/filtered_embeddings.txt"
+    words_file = "data/words.txt"
+    tags_file = "data/tags.txt"
+    chars_file = "data/chars.txt"
+    test_file = 'data/more_annotated_test.conll'
+    train_file = 'data/more_annotated_train.conll'
+    embeddings_file = "data/word2vec.txt"
+    filtered_embeddings_file = "data/filtered_embeddings.txt"
 
     processing_word = get_processing_word(lowercase=False)
 

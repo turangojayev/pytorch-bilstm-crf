@@ -1,7 +1,11 @@
 import os
 
+import numpy
 import numpy as np
 import pandas
+from sklearn.utils import shuffle
+
+from utils import LongTensor
 
 PAD = "$PAD$"
 UNK = "$UNK$"
@@ -55,7 +59,6 @@ class CoNLLDataset(object):
                     tags += (tag,)
 
     def __len__(self):
-        """Iterates once over the corpus to set and store length"""
         if self.length is None:
             self.length = 0
             for _ in self:
@@ -247,6 +250,70 @@ def pad_sequences(sequences, pad_tok, nlevels=1):
         sequence_length, _ = _pad_sequences(sequence_length, 0, max_length_sentence)
 
     return sequence_padded, sequence_length
+
+
+def _load_words_tags_chars(words_file, tags_file, chars_file):
+    word2idx = load_vocab(words_file)
+    char2idx = load_vocab(chars_file, 1)
+
+    tag2idx = load_vocab(tags_file, 3)  # since we have 3 more tokens, see below
+    # TODO: again, check the necessity for these and remove accordingly
+    tag2idx[PAD] = TOKEN2IDX[PAD]
+    tag2idx[START_TAG] = TOKEN2IDX[START_TAG]
+    tag2idx[STOP_TAG] = TOKEN2IDX[STOP_TAG]
+    return word2idx, tag2idx, char2idx
+
+
+def _load_data(training_filename, word2idx, tag2idx, char2idx):
+    # TODO: right now it just relies on the fact that there is UNK in vocab, has to make sure it exists
+    processing_word = get_processing_word(word2idx,
+                                          char2idx,
+                                          lowercase=False,
+                                          chars=True)
+    processing_tag = get_processing_tag(tag2idx)
+
+    word_indices_and_tag_indices = CoNLLDataset(training_filename, processing_word, processing_tag)
+    # TODO: maybe use explicit transformation for clarity
+    word_id_lists, tag_id_lists = list(zip(*word_indices_and_tag_indices))
+    char_id_lists, word_id_lists = list(zip(*[list(zip(*couple)) for couple in word_id_lists]))
+    seq_lengths_in_words = numpy.array([len(i) for i in word_id_lists])
+    word_lengths = numpy.array([numpy.array([len(word_char_seq) for word_char_seq in sequence])
+                                for sequence in char_id_lists])
+    return word_id_lists, tag_id_lists, char_id_lists, seq_lengths_in_words, word_lengths
+
+
+def batch_generator(*arrays, batch_size=32):
+    word_id_lists, tag_id_lists, char_id_lists, seq_length_in_words, word_lengths = arrays
+    word_id_lists, tag_id_lists, char_id_lists, seq_length_in_words, word_lengths = \
+        shuffle(word_id_lists, tag_id_lists, char_id_lists, seq_length_in_words, word_lengths)
+
+    num_instances = len(word_id_lists)
+    batch_count = int(numpy.ceil(num_instances / batch_size))
+    from tqdm import tqdm
+    prog = tqdm(total=num_instances)
+    for idx in range(batch_count):
+        startIdx = idx * batch_size
+        endIdx = (idx + 1) * batch_size if (idx + 1) * batch_size < num_instances else num_instances
+        batch_lengths = seq_length_in_words[startIdx:endIdx]
+        batch_maxlen = batch_lengths.max()
+        argsort = numpy.argsort(batch_lengths)[::-1].copy()  # without the copy torch complains about negative strides
+        char_batch = numpy.array(char_id_lists[startIdx:endIdx])[argsort]
+        char_batch = [sentence + ((0,),) * (batch_maxlen - len(sentence)) for sentence in char_batch]
+
+        word_lengths = [len(word) for sentence in char_batch for word in sentence]
+        max_word_length = max(word_lengths)
+        chars = [word + (0,) * (max_word_length - len(word)) for sentence in char_batch for word in sentence]
+
+        chars = LongTensor(chars)
+
+        words = LongTensor([word_ids + (PAD_IDX,) * (batch_maxlen - len(word_ids))
+                            for word_ids in word_id_lists[startIdx:endIdx]])
+        tags = LongTensor([tag_ids + (PAD_IDX,) * (batch_maxlen - len(tag_ids))
+                           for tag_ids in tag_id_lists[startIdx:endIdx]])
+
+        prog.update(len(batch_lengths))
+        yield words[argsort], chars, tags[argsort]
+    prog.close()
 
 
 def get_entities_and_types_per_text(dataset):

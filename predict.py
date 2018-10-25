@@ -1,39 +1,24 @@
 from collections import defaultdict
 
 from data_utils import load_vocab_vectors, UNK, _get_spans
+from model import create_crf_on_lstm_model
 from train import _load_words_tags_chars, _load_data, batch_generator
 from utils import *
 
 
-# TODO: model.train should be called with False before evaluation?
 def _predict():
-    # word2idx, tag2idx = _load_words_tags_chars("data/words.txt", "data/tags.txt")
     word2idx, tag2idx, char2idx = _load_words_tags_chars("data/words.txt", "data/tags.txt", "data/chars.txt")
 
     idx2word = {idx: word for word, idx in word2idx.items()}
     idx2tag = {idx: tag for tag, idx in tag2idx.items()}
     embeddings = load_vocab_vectors("data/filtered_embeddings.txt")
 
-    char_lstm = torch.nn.LSTM(
-        input_size=CHAR_EMBEDDING_DIM,
-        hidden_size=200 // 2,
-        num_layers=1,
-        bias=True,
-        batch_first=True,
-        bidirectional=True)
+    model = create_crf_on_lstm_model(len(word2idx), len(tag2idx), len(char2idx) + 1, embeddings)
 
-    model = lstm_crf(
-        len(word2idx), len(tag2idx),
-        torch.tensor(embeddings, dtype=torch.float),
-        len(char2idx) + 1,
-        char_lstm)
-
-    # model = lstm_crf(len(word2idx), len(tag2idx), torch.tensor(embeddings, dtype=torch.float))
     model.eval()
     print(model)
-    load_checkpoint('0.epoch6', model)
+    load_checkpoint('0.epoch2', model)
 
-    # arrays = _load_data('data/more_annotated_test.conll', None, word2idx, tag2idx)
     arrays = _load_data('data/more_annotated_test.conll', word2idx, tag2idx, char2idx)
 
     type2referenced = defaultdict(set)
