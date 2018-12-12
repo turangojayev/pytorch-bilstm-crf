@@ -1,3 +1,5 @@
+# encoding: utf8
+
 from sklearn.utils import shuffle
 from tqdm import tqdm
 
@@ -6,14 +8,12 @@ from data_utils import CoNLLDataset, get_vocabs, UNK, NUM, PAD, \
     load_vocab_vectors, STOP_TAG, START_TAG, TOKEN2IDX
 
 
-def main():
+def main(pretrained_embeddings_file=None, filtered_embeddings_file="data/filtered_embeddings.txt"):
     words_file = "data/words.txt"
     tags_file = "data/tags.txt"
     chars_file = "data/chars.txt"
-    test_file = 'data/more_annotated_test.conll'
-    train_file = 'data/more_annotated_train.conll'
-    embeddings_file = "data/word2vec.txt"
-    filtered_embeddings_file = "data/filtered_embeddings.txt"
+    test_file = 'data/eng.testa'
+    train_file = 'data/eng.train'
 
     processing_word = get_processing_word(lowercase=False)
 
@@ -21,14 +21,16 @@ def main():
     train = CoNLLDataset(train_file, processing_word)
 
     vocab_words, vocab_tags = get_vocabs([train, test])
-    embedding_vocab = get_embedding_vocab(embeddings_file)
+    vocab = set(vocab_words)
+    if pretrained_embeddings_file:
+        embedding_vocab = get_embedding_vocab(pretrained_embeddings_file)
+        vocab &= embedding_vocab
+        print('{} overlapping words'.format(len(vocab)))
 
-    vocab = vocab_words & embedding_vocab
-    print('{} overlapping words'.format(len(vocab)))
     vocab.add(UNK)
     vocab.add(NUM)
     vocab = list(vocab)
-    #TODO: there's probably no need for these anymore, check and remove, if this is the case
+    # TODO: there's probably no need for these anymore, check and remove, if this is the case
     vocab.insert(TOKEN2IDX[PAD], PAD)
     vocab.insert(TOKEN2IDX[START_TAG], START_TAG)
     vocab.insert(TOKEN2IDX[STOP_TAG], STOP_TAG)
@@ -37,7 +39,8 @@ def main():
     write_vocab(vocab, words_file)
     write_vocab(vocab_tags, tags_file)
 
-    filter_embeddings_in_vocabulary(words_file, embeddings_file, filtered_embeddings_file)
+    if pretrained_embeddings_file:
+        filter_embeddings_in_vocabulary(words_file, pretrained_embeddings_file, filtered_embeddings_file)
 
     vocab_chars = get_char_vocab(vocab_words)
     write_vocab(vocab_chars, chars_file)
@@ -61,7 +64,6 @@ def helper():
             entity2count[entity] += 1
 
     print('{} entities'.format(len(entity2count)))
-    # print(entity2count)
     random_entity_count = 200
     random_ents = numpy.random.choice(list(entity2count.keys()), random_entity_count, False)
     summ = 0
@@ -151,7 +153,7 @@ def _write_to_conll_format(path, df):
 if __name__ == "__main__":
     main()
     # helper()
-    embeddings = load_vocab_vectors("../data/filtered_embeddings.txt")
+    # embeddings = load_vocab_vectors("../data/filtered_embeddings.txt")
     # print(embeddings.shape)
     # print(embeddings[0])
     # print(embeddings[load_vocab("../data/words.txt")[UNK]])

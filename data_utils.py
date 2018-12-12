@@ -1,3 +1,5 @@
+# encoding: utf8
+
 import os
 
 import numpy
@@ -50,7 +52,7 @@ class CoNLLDataset(object):
                         words, tags = (), ()
                 else:
                     ls = line.split(' ')
-                    word, tag = ls[0], ls[1]
+                    word, tag = ls[0], ls[-1]
                     if self.processing_word is not None:
                         word = self.processing_word(word)
                     if self.processing_tag is not None:
@@ -257,10 +259,10 @@ def _load_words_tags_chars(words_file, tags_file, chars_file):
     char2idx = load_vocab(chars_file, 1)
 
     tag2idx = load_vocab(tags_file, 3)  # since we have 3 more tokens, see below
-    # TODO: again, check the necessity for these and remove accordingly
-    tag2idx[PAD] = TOKEN2IDX[PAD]
-    tag2idx[START_TAG] = TOKEN2IDX[START_TAG]
-    tag2idx[STOP_TAG] = TOKEN2IDX[STOP_TAG]
+    tag2idx.update(TOKEN2IDX)
+    # tag2idx[PAD] = TOKEN2IDX[PAD]
+    # tag2idx[START_TAG] = TOKEN2IDX[START_TAG]
+    # tag2idx[STOP_TAG] = TOKEN2IDX[STOP_TAG]
     return word2idx, tag2idx, char2idx
 
 
@@ -298,12 +300,14 @@ def batch_generator(*arrays, batch_size=32):
         batch_maxlen = batch_lengths.max()
         argsort = numpy.argsort(batch_lengths)[::-1].copy()  # without the copy torch complains about negative strides
         char_batch = numpy.array(char_id_lists[startIdx:endIdx])[argsort]
+
+        # make each sentence in batch contain same number of words
         char_batch = [sentence + ((0,),) * (batch_maxlen - len(sentence)) for sentence in char_batch]
 
         word_lengths = [len(word) for sentence in char_batch for word in sentence]
         max_word_length = max(word_lengths)
+        # make each word in batch contain same number of chars
         chars = [word + (0,) * (max_word_length - len(word)) for sentence in char_batch for word in sentence]
-
         chars = LongTensor(chars)
 
         words = LongTensor([word_ids + (PAD_IDX,) * (batch_maxlen - len(word_ids))
@@ -371,10 +375,23 @@ def _get_spans(words, tags):
                 _types.add(_type)
                 startIdx = i
             else:
-                if not _entity:
-                    raise ValueError("Illegal state, current tag - {}".format(tag))
-                _entity.append(word)
-
+                if _entity:
+                    if _type == tag[2:]:
+                        _entity.append(word)
+                    else:
+                        _entities.append((startIdx, i, _type, " ".join(_entity)))
+                        _entity = [word]
+                        _type = tag[2:]
+                        _types.add(_type)
+                        startIdx = i
+                else:
+                    _entity = [word]
+                    _type = tag[2:]
+                    _types.add(_type)
+                    startIdx = i
+                # if not _entity:
+                #     raise ValueError("Illegal state, current tag - {}".format(tag))
+                # _entity.append(word)
         else:
             if _entity:
                 _entities.append((startIdx, i, _type, " ".join(_entity)))
@@ -386,18 +403,6 @@ def _get_spans(words, tags):
 
 
 def get_df():
-    # entities, types, texts = get_entities_and_types_per_text(
-    #     CoNLLDataset(os.path.join(os.getcwd(), 'data/train_new_conll.txt'), get_processing_word()))
-    # # CoNLLDataset('../data/train_new_conll.txt', get_processing_word()))
-    #
-    # tentities, ttypes, ttexts = get_entities_and_types_per_text(
-    #     CoNLLDataset(os.path.join(os.getcwd(), 'data/test_new_conll.txt'), get_processing_word()))
-    # # CoNLLDataset('../data/test_new_conll.txt', get_processing_word()))
-    #
-    # entities.extend(tentities)
-    # types.extend(ttypes)
-    # texts.extend(ttexts)
-
     entities, types, texts = get_entities_and_types_per_text(
         CoNLLDataset(os.path.join(os.getcwd(), 'data/more_annotated.txt'), get_processing_word()))
     return pandas.DataFrame(data={'texts': texts, 'entities': entities, 'types': types})
@@ -405,19 +410,22 @@ def get_df():
 
 if __name__ == '__main__':
     entities, types, texts = get_entities_and_types_per_text(
-        CoNLLDataset('../data/train.conll', get_processing_word()))
+        CoNLLDataset('data/more_annotated_train.conll', get_processing_word()))
     train_entities = set()
     for _entities in entities:
         if _entities:
-            for entity, _ in _entities:
-                train_entities.add(entity)
+            for entity in _entities:
+                train_entities.add(entity[3])
 
     entities, types, texts = get_entities_and_types_per_text(
-        CoNLLDataset('../data/test.conll', get_processing_word()))
+        CoNLLDataset('data/more_annotated_test.conll', get_processing_word()))
     test_entities = set()
     for _entities in entities:
         if _entities:
-            for entity, _ in _entities:
-                test_entities.add(entity)
+            for entity in _entities:
+                test_entities.add(entity[3])
 
+    print(len(test_entities))
+    print(len(train_entities))
+    print(len(test_entities.difference(train_entities)))
     print(test_entities.difference(train_entities))

@@ -9,20 +9,18 @@ def load_checkpoint(filename, model=None):
     model.load_state_dict(checkpoint["state_dict"])
     epoch = checkpoint["epoch"]
     loss = checkpoint["loss"]
-    print("saved model: epoch = %d, loss = %f" % (checkpoint["epoch"], checkpoint["loss"]))
+    print("saved model: epoch = {}, loss = {}".format(epoch, loss))
     return epoch
 
 
 def save_checkpoint(filename, model, epoch, loss, time):
-    print("epoch = %d, loss = %f, time = %f" % (epoch, loss, time))
+    print("epoch = {}, loss = {}, time = {}".format(epoch, loss, time))
     if filename and model:
-        print("saving model...")
         checkpoint = {}
         checkpoint["state_dict"] = model.state_dict()
         checkpoint["epoch"] = epoch
         checkpoint["loss"] = loss
-        torch.save(checkpoint, filename + ".epoch%d" % epoch)
-        print("saved model at epoch %d" % epoch)
+        torch.save(checkpoint, filename + ".epoch{}-{}".format(epoch, loss))
 
 
 def Tensor(*args):

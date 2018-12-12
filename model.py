@@ -1,3 +1,5 @@
+# coding: utf8
+
 import torch
 import torch.nn as nn
 
@@ -57,7 +59,6 @@ class CRFOnLSTM(nn.Module):
         return self.crf.decode(h, mask)
 
 
-# TODO: comment all dimension conversions for better understanding!
 class WordCharLSTM(nn.Module):
     def __init__(
             self,
@@ -77,17 +78,30 @@ class WordCharLSTM(nn.Module):
             padding_idx=char_padding_idx)
 
         self.word_embeddings = nn.Embedding(
-            num_word_embeddings,
-            WORD_EMBEDDING_DIM,
+            num_embeddings=num_word_embeddings,
+            embedding_dim=WORD_EMBEDDING_DIM,
             padding_idx=PAD_IDX,
             _weight=word_embeddings)
 
-        self.word_embeddings.weight.requires_grad = train_word_embeddings
+        if word_embeddings:
+            self.word_embeddings.weight.requires_grad = train_word_embeddings
 
         self.char_lstm = char_lstm
+        self.embedding_dropout = nn.Dropout(0.3)
         self.word_lstm = word_lstm
-        self.out = nn.Linear(WORD_LSTM_HIDDEN_SIZE, num_tags)  # LSTM output to tag
+        self.output_dropout = nn.Dropout(0.3)
+        self.out = nn.Linear(WORD_LSTM_HIDDEN_SIZE, num_tags)
 
+        nn.init.xavier_uniform_(self.out.weight)
+        for name, param in self.word_lstm.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_uniform_(param)
+
+        for name, param in self.char_lstm.named_parameters():
+            if 'weight' in name:
+                nn.init.xavier_uniform_(param)
+
+    # TODO : maybe other initialization methods?
     def init_hidden(self, batch_size):  # initialize hidden states
         h = zeros(WORD_LSTM_NUM_LAYERS * WORD_LSTM_NUM_DIRS,
                   batch_size,
@@ -105,12 +119,14 @@ class WordCharLSTM(nn.Module):
 
         word_x = self.word_embeddings(word_x)
         word_x = torch.cat([word_x, char_output], -1)
+        word_x = self.embedding_dropout(word_x)
 
         initial_hidden = self.init_hidden(batch_size)  # batch size is first
         word_x = nn.utils.rnn.pack_padded_sequence(word_x, mask.sum(1).int(), batch_first=True)
         output, hidden = self.word_lstm(word_x, initial_hidden)
 
         output, recovered_lengths = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
+        output = self.output_dropout(output)
         output = self.out(output)  # batch x seq_len x num_tags
         output *= mask.unsqueeze(-1)  # mask - batch x seq_len -> batch x seq_len x 1
         return output
@@ -132,7 +148,6 @@ class WordCharLSTM(nn.Module):
         indices_of_lasts = (word_lengths_copy - 1).unsqueeze(1).expand(-1, output.shape[2]).unsqueeze(1)
         output = output.gather(1, indices_of_lasts).squeeze()
         output[word_lengths == 0] = 0
-        # return output.reshape(len(batch), max_sentence_length, -1)
         return output
 
 
@@ -142,16 +157,15 @@ class CRF(nn.Module):
         self.num_tags = num_tags
 
         # matrix of transition scores from j to i
-        # TODO: again, check necessity for using start and stop tags explicitly
         self.transition = nn.Parameter(randn(num_tags, num_tags))
-        self.transition.data[START_TAG_IDX, :] = -10000.  # no transition to SOS
-        self.transition.data[:, STOP_TAG_IDX] = -10000.  # no transition from EOS except to PAD
+        self.transition.data[START_TAG_IDX, :] = -10000.  # no transition to START
+        self.transition.data[:, STOP_TAG_IDX] = -10000.  # no transition from END except to PAD
         self.transition.data[:, PAD_IDX] = -10000.  # no transition from PAD except to PAD
-        self.transition.data[PAD_IDX, :] = -10000.  # no transition to PAD except from EOS
+        self.transition.data[PAD_IDX, :] = -10000.  # no transition to PAD except from END
         self.transition.data[PAD_IDX, STOP_TAG_IDX] = 0.
         self.transition.data[PAD_IDX, PAD_IDX] = 0.
 
-    def forward(self, h, mask):  # forward algorithm
+    def forward(self, h, mask):
         # initialize forward variables in log space
         alpha = Tensor(h.shape[0], self.num_tags).fill_(-10000.)  # [B, S]
         # TODO: pytorch tutorial says wrap it in a variable to get automatic backprop, do we need it here? to be checked
@@ -260,7 +274,7 @@ def create_crf_on_lstm_model(
     return CRFOnLSTM(
         word_vocab_size,
         tag_vocab_size,
-        torch.tensor(word_embeddings, dtype=torch.float),
+        torch.tensor(word_embeddings, dtype=torch.float) if word_embeddings else None,
         char_vocab_size,
         word_lstm,
         char_lstm)

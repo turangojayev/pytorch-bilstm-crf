@@ -16,36 +16,30 @@ torch.manual_seed(1)
 def train(word_vocab_size,
           tag_vocab_size,
           char_vocab_size,
-          word_embeddings,
           train_data,
           valid_data,
-          epochs=20):
+          epochs=20,
+          word_embeddings=None):
     model = create_crf_on_lstm_model(word_vocab_size, tag_vocab_size, char_vocab_size, word_embeddings)
     optim = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
-    # TODO: change naming to something better
-    filename = re.sub("\.epoch[0-9]+$", "", '0')
     print(model)
     print("training model...")
-    epoch = 0
-    for ei in range(epoch + 1, epoch + epochs + 1):
+    for epoch in range(1, epochs + 1):
         loss_sum = 0
         timer = time.time()
         batch_count = 0
         model.train()
         for word_x, char_x, y in batch_generator(*train_data):
             model.zero_grad()
-            loss = torch.mean(model(word_x, char_x, y))  # forward pass and compute loss
-            loss.backward()  # compute gradients
-            optim.step()  # update parameters
+            loss = torch.mean(model(word_x, char_x, y))
+            loss.backward()
+            optim.step()
             loss = scalar(loss)
             loss_sum += loss
             batch_count += 1
         timer = time.time() - timer
         loss_sum /= batch_count
-        if ei % SAVE_EVERY and ei != epoch + epochs:
-            save_checkpoint("", None, ei, loss_sum, timer)
-        else:
-            save_checkpoint(filename, model, ei, loss_sum, timer)
+        save_checkpoint('model', model, epoch, loss_sum, timer)
 
         loss_sum = 0
         batch_count = 0
@@ -62,9 +56,9 @@ if __name__ == "__main__":
     words_file = "data/words.txt"
     tags_file = "data/tags.txt"
     chars_file = "data/chars.txt"
-    valid_file = 'data/more_annotated_test.conll'
-    train_file = 'data/more_annotated_train.conll'
-    filtered_embeddings_file = "data/filtered_embeddings.txt"
+    valid_file = 'data/eng.testa'
+    train_file = 'data/eng.train'
+    # filtered_embeddings_file = "data/filtered_embeddings.txt"
 
     word2idx, tag2idx, char2idx = _load_words_tags_chars(words_file, tags_file, chars_file)
     train_data = _load_data(train_file, word2idx, tag2idx, char2idx)
@@ -73,7 +67,7 @@ if __name__ == "__main__":
         len(word2idx),
         len(tag2idx),
         len(char2idx) + 1,
-        load_vocab_vectors(filtered_embeddings_file),
         train_data,
         valid_data,
-        epochs=100)
+        epochs=100,
+        word_embeddings=None)

@@ -1,3 +1,6 @@
+# encoding: utf-8
+
+
 from collections import defaultdict
 
 from data_utils import load_vocab_vectors, UNK, _get_spans
@@ -11,19 +14,21 @@ def _predict():
 
     idx2word = {idx: word for word, idx in word2idx.items()}
     idx2tag = {idx: tag for tag, idx in tag2idx.items()}
-    embeddings = load_vocab_vectors("data/filtered_embeddings.txt")
+    # embeddings = load_vocab_vectors("data/filtered_embeddings.txt")
 
-    model = create_crf_on_lstm_model(len(word2idx), len(tag2idx), len(char2idx) + 1, embeddings)
+    model = create_crf_on_lstm_model(len(word2idx), len(tag2idx), len(char2idx) + 1, None)
 
     model.eval()
     print(model)
-    load_checkpoint('0.epoch2', model)
+    load_checkpoint('model.epoch3-0.7339571436404638', model)
 
-    arrays = _load_data('data/more_annotated_test.conll', word2idx, tag2idx, char2idx)
+    arrays = _load_data('data/eng.testb', word2idx, tag2idx, char2idx)
+
+    seen_entities = set()
 
     type2referenced = defaultdict(set)
     type2predicted = defaultdict(set)
-
+    mistakes = 0
     sentenceIdx = 0
     for word_x, char_x, y in batch_generator(*arrays):
         y_pred = model.decode(word_x, char_x)
@@ -37,6 +42,7 @@ def _predict():
                 predicted = _get_spans(text[:length], predicted_tags[:length])
 
             except ValueError:
+                mistakes += 1
                 continue
 
             for reference in referenced:
@@ -44,6 +50,7 @@ def _predict():
 
             for prediction in predicted:
                 type2predicted[prediction[2]].add((sentenceIdx, *prediction))
+                seen_entities.add(prediction[3])
 
             sentenceIdx += 1
 
@@ -58,6 +65,8 @@ def _predict():
         print(type, len(predicted), len(predicted.intersection(type2referenced[type])),
               float(len(predicted.intersection(type2referenced[type]))) / len(predicted))
 
+    print(mistakes, 'mistakes')
+
 
 def _instance_from(predicted, entry, idx2word, idx2tag):
     words = [idx2word.get(idx.item(), UNK) for idx in entry]
@@ -66,5 +75,5 @@ def _instance_from(predicted, entry, idx2word, idx2tag):
 
 
 if __name__ == "__main__":
-    print("cuda: %s" % CUDA)
+    print("cuda: {}".format(CUDA))
     _predict()
